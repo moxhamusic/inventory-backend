@@ -1,1 +1,124 @@
+const express = require("express");
+
+const router = express.Router();
+const inventory = [];
+let nextId = 1;
+
+const fields = ["name", "category", "quantity", "price"];
+
+function createError(status, message) {
+	const error = new Error(message);
+	error.status = status;
+	return error;
+}
+
+function validateItem(item, partial = false) {
+	if (!item || typeof item !== "object" || Array.isArray(item)) {
+		throw createError(400, "Request body must be an object");
+	}
+
+	if (!partial && fields.some((field) => item[field] === undefined)) {
+		throw createError(400, "name, category, quantity, and price are required");
+	}
+
+	for (const field of fields) {
+		if (item[field] === undefined) continue;
+
+		if (["name", "category"].includes(field)) {
+			if (typeof item[field] !== "string" || item[field].trim() === "") {
+				throw createError(400, `${field} must be a non-empty string`);
+			}
+		} else if (typeof item[field] !== "number" || !Number.isFinite(item[field])) {
+			throw createError(400, `${field} must be a number`);
+		}
+	}
+}
+
+function getItemId(value) {
+	const id = Number(value);
+	if (!Number.isInteger(id)) {
+		throw createError(400, "id must be an integer");
+	}
+	return id;
+}
+
+function findItem(id) {
+	const item = inventory.find((entry) => entry.id === id);
+	if (!item) throw createError(404, `Item with id ${id} not found`);
+	return item;
+}
+
+router.get("/", (req, res, next) => {
+	try {
+		const { category, minQuantity, maxQuantity, search } = req.query;
+		let items = inventory;
+
+		if (category !== undefined) {
+			items = items.filter(
+				(item) => item.category.toLowerCase() === String(category).toLowerCase()
+			);
+		}
+		if (minQuantity !== undefined) {
+			const minimum = Number(minQuantity);
+			if (!Number.isFinite(minimum)) throw createError(400, "minQuantity must be a number");
+			items = items.filter((item) => item.quantity >= minimum);
+		}
+		if (maxQuantity !== undefined) {
+			const maximum = Number(maxQuantity);
+			if (!Number.isFinite(maximum)) throw createError(400, "maxQuantity must be a number");
+			items = items.filter((item) => item.quantity <= maximum);
+		}
+		if (search !== undefined) {
+			const query = String(search).toLowerCase();
+			items = items.filter((item) => item.name.toLowerCase().includes(query));
+		}
+
+		res.json({ success: true, data: items });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get("/:id", (req, res, next) => {
+	try {
+		res.json({ success: true, data: findItem(getItemId(req.params.id)) });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post("/", (req, res, next) => {
+	try {
+		validateItem(req.body);
+		const item = { id: nextId++, ...req.body };
+		inventory.push(item);
+		res.status(201).json({ success: true, data: item });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/:id", (req, res, next) => {
+	try {
+		const item = findItem(getItemId(req.params.id));
+		validateItem(req.body, true);
+		Object.assign(item, req.body);
+		res.json({ success: true, data: item });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete("/:id", (req, res, next) => {
+	try {
+		const id = getItemId(req.params.id);
+		const item = findItem(id);
+		inventory.splice(inventory.indexOf(item), 1);
+		res.json({ success: true, data: item });
+	} catch (error) {
+		next(error);
+	}
+});
+
+module.exports = router;
 
